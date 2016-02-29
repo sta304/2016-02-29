@@ -1,0 +1,239 @@
+---
+title: 'STA304'
+author: "Neil Montgomery"
+date: "2016-02-29"
+output: 
+  ioslides_presentation: 
+    css: 'styles.css' 
+    widescreen: true 
+    transition: 0.001
+---
+\newcommand{\E}[1]{E{\left(#1\right)}}
+\newcommand{\flist}[2]{\{#1_1, #1_2, \ldots, #1_#2\}}
+\newcommand{\fulist}[3]{\{#1_{{#2}1}, #1_{{#2}2}, \ldots, #1_{{#2}{#3}}\}}
+\renewcommand{\bar}[1]{\overline{#1}}
+\newcommand{\SE}[1]{\sqrt{\hat{V}(#1)}}
+
+
+```{r, echo=FALSE, message=FALSE}
+## Tx stuff
+library(rio)
+library(dplyr)
+tx <- import("tx.csv")
+N_tx <- nrow(tx)
+n_tx <- 600
+
+library(knitr)
+tx %>% 
+  group_by(Size) %>% 
+  summarise(N=n(), W = n()/nrow(tx)) -> tx_by_size
+
+set.seed(1)
+tx_srs <- sample_n(tx, n_tx)
+
+tx_srs %>% 
+  summarize(mean = mean(Age), sd = sd(Age), 
+            B = 2*sqrt(var(Age)/n_tx*(N_tx-n_tx)/N_tx)) -> tx_srs_est
+
+set.seed(2)
+tx %>% 
+  group_by(Size) %>% 
+  sample_frac(n_tx/N_tx) -> tx_strat
+
+tx_strat %>% 
+  group_by(Size) %>% 
+  summarise(n = n(), means = mean(Age), variances = var(Age), sds = sd(Age)) -> tx_strat_summ
+```
+
+```{r, echo=FALSE}
+## Fittings stuff
+fittings <- import("fittings.csv")
+N_fittings <- nrow(fittings)
+fittings %>% 
+  group_by(Municipality) %>% 
+  summarize(N = n(), W = n()/N_fittings) -> fittings_by_mun
+n_fittings <- 1000
+```
+
+```{r, echo=FALSE}
+set.seed(500)
+fittings %>% 
+  group_by(Municipality) %>% 
+  sample_frac(n_fittings/N_fittings) -> fittings_strat
+```
+
+```{r, echo=FALSE}
+fittings_strat %>% 
+  group_by(Municipality) %>% 
+  summarize(n=n(), mean=mean(Age), sd = sd(Age)) -> fittings_strat_summ
+```
+
+```{r, echo=FALSE}
+fittings_strat %>% 
+  group_by(Municipality) %>% 
+  summarise(n=n(), mean=mean(Age), var=var(Age)) %>% 
+  left_join(., fittings_by_mun, "Municipality") %>% 
+  mutate(W_mean = mean*W, W_varhat = W^2*var/n*(N_fittings-n)/N_fittings) -> f_st
+B_st <- 2*sqrt(sum(f_st$var / f_st$n * (1 - f_st$n/f_st$N) * f_st$W^2))
+```
+
+```{r, echo=FALSE}
+fittings %>% sample_n(999) %>% summarize(mean=mean(Age), sd(Age), B =2*sd(Age)/sqrt(999)*(1-999/N_fittings)) -> f_srs
+```
+
+## Solving for n {.build}
+
+The sample size required is (approximately):
+$$n = \frac{\sum_{i=1}^L N_i^2\sigma_i^2/a_i}{N^2B^2/4 + \sum_{i=1}^L N_i \sigma^2_i}$$
+with $\sigma^2_i$ guessed from best available knowledge, like before.
+
+But this is a really poor formula for hand calculation, which you'll have to practice. I had on the board divided through by $N$ (for understanding). Even better is to divide through by $N^2$:
+$$n = \frac{\sum_{i=1}^L W_i^2 \sigma_i^2/a_i}{B^2/4 + \frac{1}{N}\sum_{i=1}^L W_i \sigma^2_i}$$
+
+
+## example---transformer age from term test { .build }
+
+Suppose we want to estimate the average transformer age with error bound of 1 year. We're pretty sure the oldest transformers are around 60 years old. If we stick with a proportional allocation, what sample size is required?
+
+Recall:
+
+```{r, echo=FALSE}
+kable(tx_by_size)
+```
+
+In the special case of proportional allocation, $W_i = a_i$ (noice!) and the formula is just:
+
+$$n = \frac{\sum_{i=1}^L W_i \sigma_i^2}{B^2/4 + \frac{1}{N}\sum_{i=1}^L W_i \sigma^2_i}$$
+
+## example---transformer age { .build }
+
+The desired bound is $B=1$. We think the oldest is 60 years old, so within each subgroup we can use the guess $\sigma_i \approx \text{range}/4 = 15$. The population total is $N=`r sum(tx_by_size$N)`$.
+
+To get the required sample size I'll augment the table from before:
+```{r, echo=FALSE}
+tx_by_size %>% 
+  mutate("sigma^2" = 15^2, "W_i*sigma^2" = `sigma^2`*W) -> tx_by_size_aug
+kable(tx_by_size_aug)
+```
+
+And we get:
+$$n = \frac{`r sum(tx_by_size_aug$"W_i*sigma^2")`}{`r 1^2/4` + \frac{1}{`r N_tx`} \cdot `r sum(tx_by_size_aug$"W_i*sigma^2")`} = 
+`r round(sum(tx_by_size_aug$"W_i*sigma^2")/(1/4 + 1/N_tx * sum(tx_by_size_aug$"W_i*sigma^2")),2)`$$
+
+Why did the formula get *even simpler*?
+
+## example---"fittings" age { .build }
+
+Suppose we want to estimate the average fitting age to within 0.5 years. 
+
+We choose to sample *equally* from each stratum. In other words $a_i = 1/6$ for each stratum.
+
+We need guesses for stratum variances. We'll use the sample variances from last week's stratified sample. (Perhaps not realistic.) Here is an augmented summary of what we need to do the calculation:
+
+```{r, echo=FALSE}
+fittings_ss <- left_join(fittings_by_mun, fittings_strat_summ, "Municipality") 
+
+fittings_ss %>% 
+  mutate(a_i = 1/6, "sigma_i^2" = sd^2, 
+         "W_i^2*sigma_i^2/a_i" = W^2 * `sigma_i^2` / a_i,
+         "W_i * sigma_i^2" = W * `sigma_i^2`) %>% 
+  select(Municipality, N, W, a_i, `sigma_i^2`, `W_i^2*sigma_i^2/a_i`,
+         `W_i * sigma_i^2`) -> f_ss_aug
+kable(f_ss_aug, digits=3)
+  
+```
+
+## example---"fittings" age { .build }
+
+The sums of the last two columns from the previous slide are:
+
+```{r, echo=FALSE}
+f_ss_aug %>% 
+  summarise(sum(`W_i^2*sigma_i^2/a_i`), sum(`W_i * sigma_i^2`)) -> f_ss_bits
+  
+kable(f_ss_bits)
+names(f_ss_bits) <- c("num", "den")
+```
+
+so the required sample size is:
+
+$$n = \frac{`r f_ss_bits$num`}{`r 0.5^2/4` + \frac{1}{`r N_fittings`}`r f_ss_bits$den`} = `r round(f_ss_bits$num/(0.5^2/4 + f_ss_bits$den/N_fittings), 2)`$$
+
+Is this surprising?
+
+## optimal allocation { .build }
+
+The word "optimal" gets thrown around a bit too casually. To *optimize* anythng you need a criterion. And often optimization also requires *prediction*. But I digress...
+
+The sample size calculation requires an allocation fraction to be determined. We've seen *proportional* and *equal* allocations.
+
+If there is variation in *cost per unit sampled* $c_i$ among strata, then it is possible to allocate the sample in a way that minimizes total cost.
+
+It makes sense that the optimal allocation should be *larger* for strata that are:
+
+1. Larger (bigger $N_i$)
+
+2. More variable (bigger $\sigma^2_i$)
+
+3. Cheaper (smaller $c_i$)
+
+## optimal allocation formulae { .build }
+
+Textbook formula (bad for hand calculation):
+$$a_i = \frac{N_i\sigma_i \big/ \sqrt{c_i}}{\sum_{k=1}^L N_k\sigma_k \big/ \sqrt{c_k}}$$
+and note that textbook doesn't call this $a_i$ directly...
+
+Better for hand calculation is to divide by $N$ to get:
+$$a_i = \frac{W_i\sigma_i \big/ \sqrt{c_i}}{\sum_{k=1}^L W_k\sigma_k \big/ \sqrt{c_k}}$$
+
+## optimal allocation example { .build }
+
+Let's use the fittings example, with prior variances used again. Suppose the cost per unit is as follows (along with some other calculations we'll need):
+
+```{r, echo = FALSE}
+f_ss_aug %>% 
+  mutate(c_i = c(15.75, 9.45, 15.75, 9.75, 21.39, 9.75),
+         sigma_i = sqrt(`sigma_i^2`),
+         "W_i*sigma_i/sqrt(c_i)" = W*sigma_i/c_i) %>% 
+  select(Municipality, N, W, `sigma_i`, c_i,
+        `W_i*sigma_i/sqrt(c_i)`) -> fittings_by_mun_cost
+kable(fittings_by_mun_cost, digits=3)
+```
+
+## optimal allocation example
+
+The sum of the final column is `r round(sum(fittings_by_mun_cost$
+"W_i*sigma_i/sqrt(c_i)"), 3)`. The optimal allocation now replaces the `a_i` column from the table on slide 5 which now becomes:
+
+```{r, echo=FALSE}
+fittings_ss_opt <- left_join(fittings_by_mun_cost, fittings_strat_summ, "Municipality") 
+
+fittings_ss_opt %>% 
+  mutate(a_i = `W_i*sigma_i/sqrt(c_i)`/sum(`W_i*sigma_i/sqrt(c_i)`), "sigma_i^2" = sd^2, 
+         "W_i^2*sigma_i^2/a_i" = W^2 * `sigma_i^2` / a_i,
+         "W_i * sigma_i^2" = W * `sigma_i^2`) %>% 
+  select(Municipality, N, W, a_i, `sigma_i^2`, `W_i^2*sigma_i^2/a_i`,
+         `W_i * sigma_i^2`) -> f_ss_opt_aug
+kable(f_ss_opt_aug, digits=3)
+  
+```
+
+The required sample size is now:
+
+```{r, echo=FALSE}
+f_ss_opt_aug %>% 
+  summarise(sum(`W_i^2*sigma_i^2/a_i`), sum(`W_i * sigma_i^2`)) -> f_ss_opt_bits
+  
+names(f_ss_opt_bits) <- c("num", "den")
+```
+
+$$n = \frac{`r f_ss_opt_bits$num`}{`r 0.5^2/4` + \frac{1}{`r N_fittings`}`r f_ss_opt_bits$den`} = `r round(f_ss_opt_bits$num/(0.5^2/4 + f_ss_opt_bits$den/N_fittings), 2)`$$
+
+## efficiency of SRS versus various allocations
+
+We've seen $\bar y_{SRS}$ and $\bar y_{st}$. Let's specify two versions of the latter: $\bar y_{prop}$ for the stratified population mean estimator with proportional allocation and $\bar y_{opt}$ for the stratified population mean estimator with optimal allocation.
+
+Then when the overall sample size is the same the following is then usually true (as long as the $N_i$ are all relatively large):
+$$V(\bar y_{opt}) \le V(\bar y_{prop}) \le V(\bar y_{SRS})$$
+
+Ponder when they might be close and when they might be far...
