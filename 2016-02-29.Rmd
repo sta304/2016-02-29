@@ -194,7 +194,7 @@ Let's use the fittings example, with prior variances used again. Suppose the cos
 f_ss_aug %>% 
   mutate(c_i = c(15.75, 9.45, 15.75, 9.75, 21.39, 9.75),
          sigma_i = sqrt(`sigma_i^2`),
-         "W_i*sigma_i/sqrt(c_i)" = W*sigma_i/c_i) %>% 
+         "W_i*sigma_i/sqrt(c_i)" = W*sigma_i/sqrt(c_i)) %>% 
   select(Municipality, N, W, `sigma_i`, c_i,
         `W_i*sigma_i/sqrt(c_i)`) -> fittings_by_mun_cost
 kable(fittings_by_mun_cost, digits=3)
@@ -229,7 +229,7 @@ names(f_ss_opt_bits) <- c("num", "den")
 
 $$n = \frac{`r f_ss_opt_bits$num`}{`r 0.5^2/4` + \frac{1}{`r N_fittings`}`r f_ss_opt_bits$den`} = `r round(f_ss_opt_bits$num/(0.5^2/4 + f_ss_opt_bits$den/N_fittings), 2)`$$
 
-## efficiency of SRS versus various allocations
+## efficiency of SRS versus various allocations { .build }
 
 We've seen $\bar y_{SRS}$ and $\bar y_{st}$. Let's specify two versions of the latter: $\bar y_{prop}$ for the stratified population mean estimator with proportional allocation and $\bar y_{opt}$ for the stratified population mean estimator with optimal allocation.
 
